@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>图片转PPT生成器</title>
+  <!-- 引入Tailwind CSS框架，用于美化页面 -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- 注意：核心的PptxGenJS库将由下面的JavaScript动态加载 -->
+  <style>
+    /* 自定义加载动画样式 */
+    .loader {
+      border: 4px solid #f3f3f3;
+      /* 浅灰色背景 */
+      border-top: 4px solid #3b82f6;
+      /* 蓝色旋转部分 */
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      animation: spin 1s linear infinite;
+      display: inline-block;
+      /* 确保它在按钮内正确显示 */
+    }
+
+    @keyframes spin {
+      0% {
+        transform: rotate(0deg);
+      }
+
+      100% {
+        transform: rotate(360deg);
+      }
+    }
+
+    /* 自定义消息提示框样式 */
+    #notification {
+      transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
+      transform: translateY(-150%);
+      opacity: 0;
+      z-index: 50;
+    }
+  </style>
+</head>
+
+<body class="bg-gray-50 flex items-center justify-center min-h-screen p-4">
+
+  <!-- 主容器 -->
+  <div class="bg-white rounded-2xl shadow-xl p-8 w-full max-w-3xl relative overflow-hidden">
+
+    <!-- 网站标题和说明 -->
+    <div class="text-center mb-8">
+      <h1 class="text-3xl md:text-4xl font-bold text-gray-800">图片转PPT生成器</h1>
+      <p class="text-gray-500 mt-3">选择多张图片，应用将自动为您生成一个每页四张图片的PPT文件。</p>
+    </div>
+
+    <!-- 文件上传区域 -->
+    <div id="drop-zone"
+      class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-all duration-300">
+      <input type="file" id="file-input" name="images" multiple accept="image/*" class="hidden">
+      <div class="flex flex-col items-center">
+        <svg class="w-16 h-16 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          xmlns="http://www.w3.org/2000/svg">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z">
+          </path>
+        </svg>
+        <p class="text-gray-600 text-lg">将图片拖拽到此处，或<span class="font-semibold text-blue-600">点击选择文件</span></p>
+        <p class="text-sm text-gray-500 mt-2">支持PNG, JPG, GIF等常见图片格式</p>
+      </div>
+    </div>
+
+    <!-- 已选文件预览区域 -->
+    <div id="preview-container" class="mt-6 hidden">
+      <h3 class="font-semibold text-gray-700 mb-3 text-lg">已选择的图片 (<span id="file-count">0</span> 张):</h3>
+      <div id="image-preview-list"
+        class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 max-h-60 overflow-y-auto p-2 bg-gray-50 rounded-lg">
+      </div>
+    </div>
+
+    <!-- 生成按钮和状态区域 -->
+    <div class="mt-8 text-center">
+      <button type="button" id="generate-btn"
+        class="w-full md:w-auto bg-blue-600 text-white font-bold py-3 px-12 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-300 transition-all duration-300 transform hover:scale-105 disabled:bg-gray-400 disabled:cursor-not-allowed disabled:transform-none">
+        <span id="btn-text">生成PPT</span>
+        <div id="loader" class="loader hidden"></div>
+      </button>
+    </div>
+
+    <!-- 自定义消息提示框 -->
+    <div id="notification" class="fixed top-5 left-1/2 p-4 rounded-lg shadow-lg text-white">
+      <p id="notification-message"></p>
+    </div>
+
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+
+      const dropZone = document.getElementById('drop-zone');
+      const fileInput = document.getElementById('file-input');
+      const previewContainer = document.getElementById('preview-container');
+      const imagePreviewList = document.getElementById('image-preview-list');
+      const fileCountSpan = document.getElementById('file-count');
+      const generateBtn = document.getElementById('generate-btn');
+      const btnText = document.getElementById('btn-text');
+      const loader = document.getElementById('loader');
+      const notification = document.getElementById('notification');
+      const notificationMessage = document.getElementById('notification-message');
+
+      let selectedFiles = [];
+      let notificationTimeout;
+
+      // --- 【最终修复】动态加载核心库，并更换为备用服务器地址 ---
+      (function loadPptxLibrary() {
+        generateBtn.disabled = true;
+        btnText.textContent = '正在加载核心库...';
+
+        const script = document.createElement('script');
+        // 更换为 jsdelivr 的服务器地址
+        script.src = './pptxgen.bundle.js';
+
+        script.onload = () => {
+          console.log('PptxGenJS library loaded successfully from jsdelivr.');
+          generateBtn.disabled = false;
+          btnText.textContent = '生成PPT';
+        };
+
+        script.onerror = () => {
+          console.error('Failed to load PptxGenJS library from all sources.');
+          showNotification('核心库加载失败，请检查网络并刷新。', 'error');
+          btnText.textContent = '加载失败';
+        };
+
+        document.head.appendChild(script);
+      })();
+
+
+      // --- 事件绑定 ---
+      dropZone.addEventListener('click', () => fileInput.click());
+      fileInput.addEventListener('change', handleFileSelect);
+      generateBtn.addEventListener('click', generatePPT);
+
+      dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('border-blue-500', 'bg-blue-50');
+      });
+      dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('border-blue-500', 'bg-blue-50');
+      });
+      dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('border-blue-500', 'bg-blue-50');
+        handleFileSelect({ target: { files: e.dataTransfer.files } });
+      });
+
+      imagePreviewList.addEventListener('click', function (e) {
+        const removeButton = e.target.closest('.remove-btn');
+        if (removeButton) {
+          const index = parseInt(removeButton.dataset.index, 10);
+          removeImage(index);
+        }
+      });
+
+      // --- 核心功能函数 ---
+
+      function showNotification(message, type = 'error') {
+        clearTimeout(notificationTimeout);
+        notificationMessage.textContent = message;
+        notification.className = `fixed top-5 left-1/2 p-4 rounded-lg shadow-lg text-white ${type === 'success' ? 'bg-green-500' : 'bg-red-500'}`;
+
+        notification.style.transform = 'translate(-50%, 0)';
+        notification.style.opacity = '1';
+
+        notificationTimeout = setTimeout(() => {
+          notification.style.transform = 'translate(-50%, -150%)';
+          notification.style.opacity = '0';
+        }, 3000);
+      }
+
+      function handleFileSelect(e) {
+        selectedFiles.push(...Array.from(e.target.files));
+        updatePreview();
+      }
+
+      function updatePreview() {
+        imagePreviewList.innerHTML = '';
+        fileCountSpan.textContent = selectedFiles.length;
+
+        if (selectedFiles.length > 0) {
+          previewContainer.classList.remove('hidden');
+          selectedFiles.forEach((file, index) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              const previewItem = document.createElement('div');
+              previewItem.className = 'relative group';
+              previewItem.innerHTML = `
+                                <img src="${e.target.result}" class="w-full h-24 object-cover rounded-lg shadow-sm">
+                                <div class="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button data-index="${index}" class="remove-btn text-white text-xs bg-red-500 hover:bg-red-600 rounded-full w-6 h-6 flex items-center justify-center font-bold">&times;</button>
+                                </div>
+                            `;
+              imagePreviewList.appendChild(previewItem);
+            };
+            reader.readAsDataURL(file);
+          });
+        } else {
+          previewContainer.classList.add('hidden');
+        }
+      }
+
+      function removeImage(index) {
+        selectedFiles.splice(index, 1);
+        updatePreview();
+      }
+
+      function readFileAsBase64(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const img = new Image();
+            img.onload = () => {
+              resolve({
+                data: reader.result,
+                width: img.width,
+                height: img.height
+              });
+            };
+            img.onerror = () => reject(new Error('Failed to load image'));
+            img.src = reader.result;
+          };
+          reader.onerror = (error) => reject(error);
+          reader.readAsDataURL(file);
+        });
+      }
+
+      async function generatePPT() {
+        if (typeof window.PptxGenJS === 'undefined') {
+          showNotification('核心库未就绪，请稍后再试。', 'error');
+          return;
+        }
+
+        if (selectedFiles.length === 0) {
+          showNotification('请先选择图片！', 'error');
+          return;
+        }
+
+        setLoading(true);
+
+        try {
+          const pptx = new window.PptxGenJS();
+          pptx.layout = 'LAYOUT_16x9';
+
+          const imagePromises = selectedFiles.map(readFileAsBase64);
+          const imageData = await Promise.all(imagePromises);
+
+          console.log('处理图片数据:', imageData.length, '张图片');
+
+          const imagesPerSlide = 4;
+          for (let i = 0; i < imageData.length; i += imagesPerSlide) {
+            const slide = pptx.addSlide();
+            const imageChunk = imageData.slice(i, i + imagesPerSlide);
+
+            console.log(`第${Math.floor(i / imagesPerSlide) + 1}页，处理${imageChunk.length}张图片`);
+
+            // 定义布局参数
+            const slideWidth = 9.5; // PPT幻灯片宽度
+            const slideHeight = 5.4; // PPT幻灯片高度
+            const marginLeft = 0.1; // 左边距
+            const marginRight = 0.1; // 右边距
+            const marginTop = 0.1; // 上边距
+            const marginBottom = 0.1; // 下边距
+            const gapBetweenImages = 0.1; // 图片之间的间距，缩小间距
+            const imageWidth = 2.3; // 每张图片的宽度，进一步放大图片
+
+            // 计算图片区域的总宽度和起始位置
+            const totalImageWidth = imageWidth * 4 + gapBetweenImages * 3; // 4张图片 + 3个间距
+            const startX = (slideWidth - totalImageWidth) / 2; // 水平居中
+
+            // 先计算所有图片的高度，找到最大高度用于垂直居中
+            const imageHeights = imageChunk.map(imgInfo => {
+              const aspectRatio = imgInfo.width / imgInfo.height;
+              return imageWidth / aspectRatio;
+            });
+            const maxImageHeight = Math.max(...imageHeights);
+            const startY = (slideHeight - maxImageHeight) / 2; // 垂直居中
+
+            console.log('布局信息:', {
+              slideWidth, slideHeight, totalImageWidth, maxImageHeight,
+              startX, startY
+            });
+
+            imageChunk.forEach((imgInfo, index) => {
+              console.log(`图片${index + 1}:`, imgInfo.width, 'x', imgInfo.height);
+
+              const x = startX + index * (imageWidth + gapBetweenImages);
+
+              // 计算保持比例的尺寸，只限制宽度，高度根据比例自动调整
+              const aspectRatio = imgInfo.width / imgInfo.height;
+              const w = imageWidth;
+              const h = imageWidth / aspectRatio;
+
+              // 计算垂直居中位置
+              const y = startY + (maxImageHeight - h) / 2; // 单张图片在区域内的垂直居中
+
+              console.log(`图片${index + 1}位置:`, { x, y, w, h });
+
+              slide.addImage({
+                data: imgInfo.data,
+                x: x,
+                y: y,
+                w: w,
+                h: h
+              });
+            });
+          }
+
+          await pptx.writeFile({ fileName: '生成的PPT.pptx' });
+          showNotification('PPT生成成功！', 'success');
+
+        } catch (error) {
+          console.error('生成PPT时出错:', error);
+          showNotification('生成PPT时发生错误，请重试。', 'error');
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      function setLoading(isLoading) {
+        generateBtn.disabled = isLoading;
+        btnText.classList.toggle('hidden', isLoading);
+        loader.classList.toggle('hidden', !isLoading);
+        if (isLoading) {
+          btnText.textContent = '';
+        } else {
+          btnText.textContent = '生成PPT';
+        }
+      }
+    });
+  </script>
+</body>
+
+</html>
